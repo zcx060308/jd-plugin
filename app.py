@@ -73,7 +73,8 @@ async def fetch_jd_search(keyword: str, page: int = 1):
         ]
 
     # 轮询代理试连, 任一成功就返回
-    for proxy in proxies:
+    last_error = ""
+    for i, proxy in enumerate(proxies):
         try:
             proxy_url = proxy if proxy else None
             async with httpx.AsyncClient(
@@ -85,15 +86,19 @@ async def fetch_jd_search(keyword: str, page: int = 1):
                 html = resp.text
                 # 判断是否触发反爬
                 if "京东验证" not in html and "risk_handler" not in html and "bp_bizid" not in html:
-                    return html
+                    if len(html) >= 500:
+                        return html
+                    last_error = f"代理{i}({proxy or '直连'}): 响应过短({len(html)}字符)={html[:50]}"
+                else:
+                    last_error = f"代理{i}({proxy or '直连'}): 触发反爬"
                 # 触发反爬, 试下一个代理
                 continue
         except Exception as e:
-            # 当前代理不可用, 继续试下一个
+            last_error = f"代理{i}({proxy or '直连'}): {type(e).__name__}: {str(e)[:80]}"
             continue
 
-    # 所有代理都失败, 返回最后一次的html(让上层报错)
-    raise Exception(f"所有代理都失败或触发反爬, 共试了{len(proxies)}个")
+    # 所有代理都失败
+    raise Exception(f"所有代理都失败, 共试了{len(proxies)}个, 最后错误: {last_error}")
 
 
 def parse_jd_html(html: str) -> list:
