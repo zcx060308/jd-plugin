@@ -1,5 +1,5 @@
 """
-京东搜索爬虫服务 - Coze自定义插件后端
+京东搜索爬虫服务 - Coze自定义插件后端 (带代理池版)
 部署: pip install -r requirements.txt
 运行: uvicorn app:app --host 0.0.0.0 --port $PORT
 """
@@ -11,6 +11,8 @@ import re
 import json
 import random
 import urllib.parse
+import asyncio
+import time
 
 app = FastAPI()
 app.add_middleware(
@@ -29,7 +31,7 @@ USER_AGENTS = [
 
 
 async def fetch_jd_search(keyword: str, page: int = 1):
-    """获取京东搜索页HTML"""
+    """获取京东搜索页HTML (带代理池轮询)"""
     encoded = urllib.parse.quote(keyword)
     url = f"https://so.m.jd.com/ware/search.action?keyword={encoded}&page={page}"
 
@@ -52,10 +54,46 @@ async def fetch_jd_search(keyword: str, page: int = 1):
         "Referer": "https://so.m.jd.com/",
     }
 
-    # 不开 http2, 避免缺 h2 包报错
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
-        resp = await client.get(url, headers=headers)
-        return resp.text
+    # 代理池 (优先用环境变量, 没有就用内置的免费代理)
+    import os
+    proxy_env = os.environ.get("PROXY_URL", "").strip()
+    if proxy_env:
+        # 付费代理模式: 一个代理用到底
+        proxies = [proxy_env]
+    else:
+        # 免费代理模式: 轮询多个
+        proxies = [
+            "",  # 不使用代理(直连)也试一次
+            # 免费代理示例(从 https://proxyscrape.com 复制粘贴新的进来)
+            "http://190.61.88.147:999",
+            "http://45.70.198.171:999",
+            "http://181.129.74.58:32650",
+            "http://181.198.32.211:999",
+            "http://177.93.37.55:999",
+        ]
+
+    # 轮询代理试连, 任一成功就返回
+    for proxy in proxies:
+        try:
+            proxy_url = proxy if proxy else None
+            async with httpx.AsyncClient(
+                timeout=15,
+                follow_redirects=True,
+                proxy=proxy_url
+            ) as client:
+                resp = await client.get(url, headers=headers)
+                html = resp.text
+                # 判断是否触发反爬
+                if "京东验证" not in html and "risk_handler" not in html and "bp_bizid" not in html:
+                    return html
+                # 触发反爬, 试下一个代理
+                continue
+        except Exception as e:
+            # 当前代理不可用, 继续试下一个
+            continue
+
+    # 所有代理都失败, 返回最后一次的html(让上层报错)
+    raise Exception(f"所有代理都失败或触发反爬, 共试了{len(proxies)}个")
 
 
 def parse_jd_html(html: str) -> list:
