@@ -31,37 +31,27 @@ USER_AGENTS = [
 
 
 async def fetch_jd_search(keyword: str, page: int = 1):
-    """通过 ScrapingAnt 代理抓取京东搜索页 (支持 JS 渲染)"""
+    """通过百度搜索结果间接获取京东商品 (绕开京东反爬)"""
     import os
     encoded = urllib.parse.quote(keyword)
-    target_url = f"https://so.m.jd.com/ware/search.action?keyword={encoded}&page={page}"
+    # 百度搜索: 关键词 + 限定京东站点
+    target_url = f"https://www.baidu.com/s?wd={encoded}+site%3Aitem.jd.com&pn={(page-1)*10}"
 
-    # 从环境变量读取 ScrapingAnt API Key
     scrapingant_key = os.environ.get("SCRAPINGANT_API_KEY", "").strip()
-
     if not scrapingant_key:
-        raise Exception("未配置 SCRAPINGANT_API_KEY 环境变量, 请在 Render 后台设置")
+        raise Exception("未配置 SCRAPINGANT_API_KEY 环境变量")
 
-    # ScrapingAnt API URL
-    # 参数说明:
-    #   url: 目标网址
-    #   x-api-key: 你的 API Key
-    #   browser=true: 用真实 Chrome 浏览器 (京东必须, 否则过不了反爬)
-    #   render_js=true: 渲染 JS
-    #   proxy_country=CN: 用中国代理
-    #   wait_for_selector: 等商品列表加载完
     api_url = "https://api.scrapingant.com/v2/general"
     params = {
         "url": target_url,
         "x-api-key": scrapingant_key,
-        "browser": "true",       # 真实浏览器
-        "render_js": "true",
-        "proxy_country": "JP",
-        "wait_for_selector": ".goods-list, .search-pro-list, .product-list, .gl-i-wrap, body",
-        "timeout": "60"           # 浏览器模式最大 60秒
+        "browser": "false",       # 百度是静态HTML, 不需要浏览器
+        "render_js": "false",
+        "proxy_country": "CN",    # 百度用国内代理
+        "timeout": "30"
     }
 
-    async with httpx.AsyncClient(timeout=75) as client:
+    async with httpx.AsyncClient(timeout=45) as client:
         resp = await client.get(api_url, params=params)
         if resp.status_code != 200:
             raise Exception(
