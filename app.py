@@ -47,7 +47,7 @@ async def fetch_jd_search(keyword: str, page: int = 1):
         "x-api-key": scrapingant_key,
         "browser": "false",       # 百度是静态HTML, 不需要浏览器
         "render_js": "false",
-        "proxy_country": "CN",    # 百度用国内代理
+        "proxy_country": "US",    # 美国代理, ScrapingAnt的US代理最稳
         "timeout": "30"
     }
 
