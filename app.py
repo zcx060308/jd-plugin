@@ -46,19 +46,19 @@ async def fetch_jd_search(keyword: str, page: int = 1):
     # 参数说明:
     #   url: 目标网址
     #   x-api-key: 你的 API Key
-    #   browser=false: 不用浏览器(更快)
-    #   render_js=true: 渲染 JS (京东必须)
+    #   browser=true: 用真实 Chrome 浏览器 (京东必须, 否则过不了反爬)
+    #   render_js=true: 渲染 JS
     #   proxy_country=CN: 用中国代理
-    #   wait_for_selector: 等元素加载
+    #   wait_for_selector: 等商品列表加载完
     api_url = "https://api.scrapingant.com/v2/general"
     params = {
         "url": target_url,
         "x-api-key": scrapingant_key,
-        "browser": "false",
+        "browser": "true",       # ← 关键: 真实浏览器
         "render_js": "true",
         "proxy_country": "CN",
-        "wait_for_selector": ".goods-list, .search-pro-list, .product-list, body",
-        "timeout": "60"
+        "wait_for_selector": ".goods-list, .search-pro-list, .product-list, .gl-i-wrap, body",
+        "timeout": "120"          # 浏览器模式慢一些, 给120秒
     }
 
     async with httpx.AsyncClient(timeout=90) as client:
