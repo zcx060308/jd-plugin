@@ -173,7 +173,7 @@ async def jd_search(
             "keyword": keyword,
             "page": page,
             "debug_html_len": len(html),
-            "debug_html_sample": html[2000:4000]  # 临时调试用, 看真实HTML结构
+            "debug_html_sample": html[100000:103000]  # 跳到搜索结果区域
         }
     except Exception as e:
         return {
