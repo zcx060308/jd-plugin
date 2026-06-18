@@ -31,74 +31,44 @@ USER_AGENTS = [
 
 
 async def fetch_jd_search(keyword: str, page: int = 1):
-    """获取京东搜索页HTML (带代理池轮询)"""
+    """通过 ScrapingAnt 代理抓取京东搜索页 (支持 JS 渲染)"""
+    import os
     encoded = urllib.parse.quote(keyword)
-    url = f"https://so.m.jd.com/ware/search.action?keyword={encoded}&page={page}"
+    target_url = f"https://so.m.jd.com/ware/search.action?keyword={encoded}&page={page}"
 
-    headers = {
-        "User-Agent": random.choice(USER_AGENTS),
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "sec-ch-ua": '"Microsoft Edge";v="149", "Chromium";v="149", "Not)A;Brand";v="24"',
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "document",
-        "sec-fetch-mode": "navigate",
-        "sec-fetch-site": "none",
-        "sec-fetch-user": "?1",
-        "Sec-Fetch-Storage-Access": "active",
-        "Upgrade-Insecure-Requests": "1",
-        "Referer": "https://so.m.jd.com/",
+    # 从环境变量读取 ScrapingAnt API Key
+    scrapingant_key = os.environ.get("SCRAPINGANT_API_KEY", "").strip()
+
+    if not scrapingant_key:
+        raise Exception("未配置 SCRAPINGANT_API_KEY 环境变量, 请在 Render 后台设置")
+
+    # ScrapingAnt API URL
+    # 参数说明:
+    #   url: 目标网址
+    #   x-api-key: 你的 API Key
+    #   browser=false: 不用浏览器(更快)
+    #   render_js=true: 渲染 JS (京东必须)
+    #   proxy_country=CN: 用中国代理
+    #   wait_for_selector: 等元素加载
+    api_url = "https://api.scrapingant.com/v2/general"
+    params = {
+        "url": target_url,
+        "x-api-key": scrapingant_key,
+        "browser": "false",
+        "render_js": "true",
+        "proxy_country": "CN",
+        "wait_for_selector": ".goods-list, .search-pro-list, .product-list, body",
+        "timeout": "60"
     }
 
-    # 代理池 (优先用环境变量, 没有就用内置的免费代理)
-    import os
-    proxy_env = os.environ.get("PROXY_URL", "").strip()
-    if proxy_env:
-        # 付费代理模式: 一个代理用到底
-        proxies = [proxy_env]
-    else:
-        # 免费代理模式: 轮询多个
-        proxies = [
-            "",  # 不使用代理(直连)也试一次
-            # 免费代理示例(从 https://proxyscrape.com 复制粘贴新的进来)
-            "http://190.61.88.147:999",
-            "http://45.70.198.171:999",
-            "http://181.129.74.58:32650",
-            "http://181.198.32.211:999",
-            "http://177.93.37.55:999",
-        ]
-
-    # 轮询代理试连, 任一成功就返回
-    last_error = ""
-    for i, proxy in enumerate(proxies):
-        try:
-            proxy_url = proxy if proxy else None
-            async with httpx.AsyncClient(
-                timeout=15,
-                follow_redirects=True,
-                proxy=proxy_url
-            ) as client:
-                resp = await client.get(url, headers=headers)
-                html = resp.text
-                # 判断是否触发反爬
-                if "京东验证" not in html and "risk_handler" not in html and "bp_bizid" not in html:
-                    if len(html) >= 500:
-                        return html
-                    last_error = f"代理{i}({proxy or '直连'}): 响应过短({len(html)}字符)={html[:50]}"
-                else:
-                    last_error = f"代理{i}({proxy or '直连'}): 触发反爬"
-                # 触发反爬, 试下一个代理
-                continue
-        except Exception as e:
-            last_error = f"代理{i}({proxy or '直连'}): {type(e).__name__}: {str(e)[:80]}"
-            continue
-
-    # 所有代理都失败
-    raise Exception(f"所有代理都失败, 共试了{len(proxies)}个, 最后错误: {last_error}")
+    async with httpx.AsyncClient(timeout=90) as client:
+        resp = await client.get(api_url, params=params)
+        if resp.status_code != 200:
+            raise Exception(
+                f"ScrapingAnt 返回错误: status={resp.status_code}, "
+                f"body={resp.text[:200]}"
+            )
+        return resp.text
 
 
 def parse_jd_html(html: str) -> list:
