@@ -54,14 +54,14 @@ async def fetch_jd_search(keyword: str, page: int = 1):
     params = {
         "url": target_url,
         "x-api-key": scrapingant_key,
-        "browser": "true",       # ← 关键: 真实浏览器
+        "browser": "true",       # 真实浏览器
         "render_js": "true",
         "proxy_country": "CN",
         "wait_for_selector": ".goods-list, .search-pro-list, .product-list, .gl-i-wrap, body",
-        "timeout": "120"          # 浏览器模式慢一些, 给120秒
+        "timeout": "60"           # 浏览器模式最大 60秒
     }
 
-    async with httpx.AsyncClient(timeout=90) as client:
+    async with httpx.AsyncClient(timeout=75) as client:
         resp = await client.get(api_url, params=params)
         if resp.status_code != 200:
             raise Exception(
