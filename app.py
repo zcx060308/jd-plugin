@@ -62,75 +62,76 @@ async def fetch_jd_search(keyword: str, page: int = 1):
 
 
 def parse_jd_html(html: str) -> list:
-    """解析京东搜索页HTML, 提取商品列表(三层策略)"""
+    """解析百度搜索结果, 提取京东商品列表"""
     products = []
+    seen_skus = set()  # 去重
 
-    # 策略1: window.__SEARCH_RESULT__ 内嵌JSON
-    m = re.search(r'window\.__SEARCH_RESULT__\s*=\s*(\{[\s\S]*?\});', html)
-    if m:
-        try:
-            data = json.loads(m.group(1))
-            items = (
-                data.get('wareInfo')
-                or data.get('itemList')
-                or data.get('searchResultList')
-                or data.get('data', {}).get('searchResultList', [])
-            )
-            for item in items[:30]:
-                products.append({
-                    "title": (item.get('wname') or item.get('title') or '')[:200],
-                    "price": float(item.get('jdPrice') or item.get('jd_price') or 0),
-                    "shop": (item.get('shop_name') or item.get('shopName') or '')[:100],
-                    "sku": str(item.get('wareId') or item.get('skuId') or ''),
-                    "platform": "jd",
-                    "platform_display": "京东",
-                    "source_url": f"https://item.jd.com/{item.get('wareId', '')}.html"
-                })
-            if products:
-                return products
-        except Exception:
-            pass
+    # 百度搜索结果解析: 提取 item.jd.com 链接
+    # 百度结果中京东商品格式:
+    #   标题: <h3 class="c-title">...</h3>
+    #   URL:  item.jd.com/100xxxx.html
+    #   价格: 通常在描述里或c-color-price类
 
-    # 策略2: JSON-LD 结构化数据
-    ld_matches = re.findall(r'<script type="application/ld\+json">(.*?)</script>', html, re.DOTALL)
-    for blob in ld_matches:
-        try:
-            ld = json.loads(blob)
-            if isinstance(ld, list):
-                for item in ld:
-                    if item.get('@type') == 'Product':
-                        products.append({
-                            "title": item.get('name', '')[:200],
-                            "price": float(item.get('offers', {}).get('price', 0)),
-                            "shop": item.get('brand', {}).get('name', ''),
-                            "sku": "",
-                            "platform": "jd",
-                            "platform_display": "京东",
-                            "source_url": ""
-                        })
-        except Exception:
+    # 找所有京东商品链接
+    jd_links = re.findall(r'href="(https?://item\.jd\.com/(\d+)\.html[^"]*)"', html)
+
+    for url, sku_id in jd_links:
+        if sku_id in seen_skus:
             continue
-    if products:
-        return products
+        seen_skus.add(sku_id)
 
-    # 策略3: 正则兜底(静态HTML标签)
-    skus = re.findall(r'data-sku="(\d+)"', html)
-    prices = re.findall(r'<i[^>]*>[￥¥]?\s*(\d+\.?\d*)</i>', html)
-    titles = re.findall(r'<em[^>]*>([^<]{5,150})</em>', html)
-    shops = re.findall(r'data-shopname="([^"]+)"', html)
+        # 找标题 (在该商品链接附近的 <em> 标签)
+        # 百度搜索结果: 标题在 <h3 class="c-title"><a href="..."><em>...</em></a></h3>
+        # 简单做法: 找URL前后500字符内的em内容
+        url_pos = html.find(url)
+        if url_pos < 0:
+            continue
+        nearby = html[max(0, url_pos-2000):url_pos+500]
+        em_match = re.findall(r'<em[^>]*>([^<]+)</em>', nearby)
+        title = em_match[0] if em_match else f"京东商品{sku_id}"
 
-    for i, sku in enumerate(skus[:20]):
-        p = {
-            "title": titles[i] if i < len(titles) else "",
-            "price": float(prices[i]) if i < len(prices) else 0.0,
-            "shop": shops[i] if i < len(shops) else "",
-            "sku": sku,
+        # 价格: 找 ¥xx.xx 格式
+        price_match = re.findall(r'[¥￥]\s*(\d+\.?\d*)', nearby)
+        price = float(price_match[0]) if price_match else 0.0
+
+        # 店铺: 找 "京东" 或 店名 关键字
+        shop_match = re.findall(r'>([^<]{2,30}官方旗舰店|京东自营|[^<]{2,30}旗舰店)<', nearby)
+        shop = shop_match[0] if shop_match else ""
+
+        products.append({
+            "title": title[:200],
+            "price": price,
+            "shop": shop[:100],
+            "sku": sku_id,
             "platform": "jd",
             "platform_display": "京东",
-            "source_url": f"https://item.jd.com/{sku}.html"
-        }
-        if p["price"] > 0 or p["title"]:
-            products.append(p)
+            "source_url": url
+        })
+
+        if len(products) >= 20:
+            break
+
+    # 兜底: 如果上面的解析没拿到东西, 尝试从结果摘要里抓
+    if not products:
+        # 抓 <span class="c-color-price">¥xxx</span>
+        prices = re.findall(r'[¥￥]\s*(\d+\.?\d*)', html)
+        # 抓标题
+        titles = re.findall(r'<em[^>]*>([^<]{5,100})</em>', html)
+        # 抓 jd.com 链接
+        urls = re.findall(r'item\.jd\.com/(\d+)\.html', html)
+        for i, sku_id in enumerate(urls[:15]):
+            if sku_id in seen_skus:
+                continue
+            seen_skus.add(sku_id)
+            products.append({
+                "title": titles[i] if i < len(titles) else f"京东商品{sku_id}",
+                "price": float(prices[i]) if i < len(prices) else 0.0,
+                "shop": "京东",
+                "sku": sku_id,
+                "platform": "jd",
+                "platform_display": "京东",
+                "source_url": f"https://item.jd.com/{sku_id}.html"
+            })
 
     return products
 
