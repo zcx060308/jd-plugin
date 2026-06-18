@@ -56,7 +56,7 @@ async def fetch_jd_search(keyword: str, page: int = 1):
         "x-api-key": scrapingant_key,
         "browser": "true",       # 真实浏览器
         "render_js": "true",
-        "proxy_country": "CN",
+        "proxy_country": "JP",
         "wait_for_selector": ".goods-list, .search-pro-list, .product-list, .gl-i-wrap, body",
         "timeout": "60"           # 浏览器模式最大 60秒
     }
